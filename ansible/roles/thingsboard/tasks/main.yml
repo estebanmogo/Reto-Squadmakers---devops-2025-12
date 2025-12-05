@@ -1,0 +1,54 @@
+---
+- name: Ensure ThingsBoard directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ thingsboard_dir }}"
+    - "{{ thingsboard_dir }}/data"
+    - "{{ thingsboard_dir }}/logs"
+    - "{{ thingsboard_dir }}/pgdata"
+    - "{{ thingsboard_dir }}/scripts"
+
+- name: Render ThingsBoard docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ thingsboard_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Copy ThingsBoard bootstrap helper
+  ansible.builtin.copy:
+    src: configure_thingsboard.py
+    dest: "{{ thingsboard_dir }}/scripts/configure_thingsboard.py"
+    mode: "0755"
+
+- name: Start ThingsBoard stack
+  ansible.builtin.command: docker compose -f {{ thingsboard_dir }}/docker-compose.yml up -d
+  args:
+    chdir: "{{ thingsboard_dir }}"
+  register: tb_up
+  changed_when: >
+    ('created' in tb_up.stdout | lower) or
+    ('recreated' in tb_up.stdout | lower) or
+    ('started' in tb_up.stdout | lower)
+
+- name: Wait for ThingsBoard HTTP endpoint
+  ansible.builtin.wait_for:
+    host: localhost
+    port: "{{ thingsboard_http_port }}"
+    delay: 10
+    timeout: 300
+
+- name: Bootstrap ThingsBoard devices and rule chain
+  ansible.builtin.command: >
+    python3 {{ thingsboard_dir }}/scripts/configure_thingsboard.py
+  environment:
+    TB_URL: "http://localhost:{{ thingsboard_http_port }}"
+    TB_USERNAME: "{{ thingsboard_admin_user }}"
+    TB_PASSWORD: "{{ thingsboard_admin_password }}"
+    KAFKA_BOOTSTRAP: "{{ kafka_container_name }}:9092"
+    KAFKA_TOPIC: "{{ kafka_topic }}"
+    TB_DEVICES: "{{ thingsboard_devices | to_json }}"
+  register: tb_bootstrap
+  changed_when: "'bootstrap complete' in tb_bootstrap.stdout"

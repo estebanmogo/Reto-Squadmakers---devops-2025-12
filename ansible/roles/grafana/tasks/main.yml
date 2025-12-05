@@ -1,0 +1,60 @@
+---
+- name: Ensure Grafana directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ grafana_dir }}"
+    - "{{ grafana_dir }}/data"
+    - "{{ grafana_dir }}/provisioning"
+    - "{{ grafana_dir }}/provisioning/datasources"
+    - "{{ grafana_dir }}/provisioning/dashboards"
+    - "{{ grafana_dir }}/provisioning/alerting"
+
+- name: Render Grafana docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ grafana_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Render Grafana datasource provisioning
+  ansible.builtin.template:
+    src: provisioning/datasource.yml.j2
+    dest: "{{ grafana_dir }}/provisioning/datasources/datasource.yml"
+    mode: "0644"
+
+- name: Render Grafana dashboards provisioning file
+  ansible.builtin.template:
+    src: provisioning/dashboards.yml.j2
+    dest: "{{ grafana_dir }}/provisioning/dashboards/dashboards.yml"
+    mode: "0644"
+
+- name: Render Grafana alerting provisioning
+  ansible.builtin.template:
+    src: provisioning/alerting.yml.j2
+    dest: "{{ grafana_dir }}/provisioning/alerting/alerting.yml"
+    mode: "0644"
+
+- name: Copy telemetry dashboard
+  ansible.builtin.template:
+    src: dashboards/telemetry.json.j2
+    dest: "{{ grafana_dir }}/provisioning/dashboards/telemetry.json"
+    mode: "0644"
+
+- name: Start Grafana stack
+  ansible.builtin.command: docker compose -f {{ grafana_dir }}/docker-compose.yml up -d
+  args:
+    chdir: "{{ grafana_dir }}"
+  register: grafana_up
+  changed_when: >
+    ('created' in grafana_up.stdout | lower) or
+    ('recreated' in grafana_up.stdout | lower) or
+    ('started' in grafana_up.stdout | lower)
+
+- name: Wait for Grafana HTTP port
+  ansible.builtin.wait_for:
+    host: localhost
+    port: "{{ grafana_port }}"
+    delay: 5
+    timeout: 120

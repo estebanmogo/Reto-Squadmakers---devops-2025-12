@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  tb-db:
+    image: postgres:14
+    container_name: tb-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: thingsboard
+      POSTGRES_USER: tb_user
+      POSTGRES_PASSWORD: {{ thingsboard_postgres_password }}
+    volumes:
+      - "{{ thingsboard_dir }}/pgdata:/var/lib/postgresql/data"
+    networks:
+      - iot_net
+
+  thingsboard:
+    image: {{ thingsboard_image }}
+    container_name: thingsboard
+    restart: unless-stopped
+    depends_on:
+      - tb-db
+    environment:
+      TB_QUEUE_TYPE: in-memory
+      TB_LICENSE_SECRET: "thingsboardDefaultSecret"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://tb-db:5432/thingsboard"
+      SPRING_DATASOURCE_USERNAME: tb_user
+      SPRING_DATASOURCE_PASSWORD: {{ thingsboard_postgres_password }}
+      HTTP_BIND_PORT: "{{ thingsboard_http_port }}"
+      MQTT_BIND_PORT: "{{ thingsboard_mqtt_port }}"
+      JVM_OPTS: "-Xms512m -Xmx1024m"
+    ports:
+      - "{{ thingsboard_http_port }}:{{ thingsboard_http_port }}"
+      - "{{ thingsboard_mqtt_port }}:{{ thingsboard_mqtt_port }}"
+    networks:
+      - iot_net
+    volumes:
+      - "{{ thingsboard_dir }}/data:/data"
+      - "{{ thingsboard_dir }}/logs:/var/log/thingsboard"
+
+networks:
+  iot_net:
+    external: true

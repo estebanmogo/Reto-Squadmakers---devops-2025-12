@@ -1,0 +1,81 @@
+---
+- name: Ensure ClickHouse directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ clickhouse_dir }}"
+    - "{{ clickhouse_dir }}/data"
+    - "{{ clickhouse_dir }}/logs"
+    - "{{ clickhouse_dir }}/config"
+
+- name: Render ClickHouse docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ clickhouse_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Start ClickHouse stack
+  ansible.builtin.command: docker compose -f {{ clickhouse_dir }}/docker-compose.yml up -d
+  args:
+    chdir: "{{ clickhouse_dir }}"
+  register: clickhouse_up
+  changed_when: >
+    ('created' in clickhouse_up.stdout | lower) or
+    ('recreated' in clickhouse_up.stdout | lower) or
+    ('started' in clickhouse_up.stdout | lower)
+
+- name: Wait for ClickHouse HTTP port
+  ansible.builtin.wait_for:
+    host: localhost
+    port: 8123
+    delay: 5
+    timeout: 120
+
+- name: Create telemetry database and tables
+  ansible.builtin.command: >
+    docker exec clickhouse clickhouse-client
+    --user {{ clickhouse_user }}
+    --password {{ clickhouse_password }}
+    --multiquery
+    --query "
+      CREATE DATABASE IF NOT EXISTS {{ clickhouse_db }};
+      DROP TABLE IF EXISTS {{ clickhouse_db }}.telemetry_mv;
+      DROP TABLE IF EXISTS {{ clickhouse_db }}.kafka_telemetry;
+      DROP TABLE IF EXISTS {{ clickhouse_db }}.telemetry;
+      CREATE TABLE IF NOT EXISTS {{ clickhouse_db }}.telemetry (
+        ts DateTime,
+        drone_id String,
+        latitude Float64,
+        longitude Float64,
+        battery Float32,
+        altitude Float64,
+        speed Float64,
+        raw_payload String
+      ) ENGINE = MergeTree()
+      ORDER BY (drone_id, ts);
+      CREATE TABLE IF NOT EXISTS {{ clickhouse_db }}.kafka_telemetry (
+        ts UInt64,
+        drone_id String,
+        latitude Float64,
+        longitude Float64,
+        battery Float32,
+        altitude Float64,
+        speed Float64,
+        raw_payload String
+      ) ENGINE = Kafka SETTINGS
+        kafka_broker_list = '{{ kafka_container_name }}:9092',
+        kafka_topic_list = '{{ kafka_topic }}',
+        kafka_group_name = 'clickhouse-consumer',
+        kafka_format = 'JSONEachRow',
+        kafka_skip_broken_messages = 1,
+        kafka_thread_per_consumer = 0,
+        kafka_num_consumers = 1,
+        kafka_max_block_size = 1048576;
+      CREATE MATERIALIZED VIEW IF NOT EXISTS {{ clickhouse_db }}.telemetry_mv TO {{ clickhouse_db }}.telemetry AS
+        SELECT toDateTime(intDiv(ts, 1000)) AS ts, drone_id, latitude, longitude, battery, altitude, speed, raw_payload
+        FROM {{ clickhouse_db }}.kafka_telemetry;
+    "
+  register: clickhouse_schema
+  changed_when: "'CREATE TABLE' in clickhouse_schema.stdout or 'CREATE DATABASE' in clickhouse_schema.stdout"

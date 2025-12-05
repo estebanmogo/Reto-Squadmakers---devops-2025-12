@@ -1,0 +1,62 @@
+{
+  "id": null,
+  "uid": "telemetry",
+  "title": "Drone Telemetry",
+  "tags": ["iot", "drones"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Drones reportando",
+      "id": 1,
+      "datasource": { "type": "vertamedia-clickhouse-datasource", "uid": "clickhouse" },
+      "options": { "reduceOptions": { "calcs": ["count"], "fields": "", "values": false }, "orientation": "auto" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "target": "SELECT drone_id FROM {{ clickhouse_db }}.telemetry WHERE ts >= now() - INTERVAL 5 MINUTE"
+        }
+      ],
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "type": "time-series",
+      "title": "Batería por dron",
+      "id": 2,
+      "datasource": { "type": "vertamedia-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "decimals": 1 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "target": "SELECT ts AS t, battery AS v, drone_id AS tag FROM {{ clickhouse_db }}.telemetry WHERE ts >= now() - INTERVAL 30 MINUTE ORDER BY t"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 }
+    },
+    {
+      "type": "table",
+      "title": "Últimos eventos",
+      "id": 3,
+      "datasource": { "type": "vertamedia-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "target": "SELECT ts, drone_id, latitude, longitude, battery, altitude, speed FROM {{ clickhouse_db }}.telemetry ORDER BY ts DESC LIMIT 50"
+        }
+      ],
+      "gridPos": { "h": 10, "w": 18, "x": 0, "y": 4 }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+---
+- name: Ensure Kafka directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ kafka_data_dir }}"
+    - "{{ kafka_dir }}"
+
+- name: Render Kafka docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ kafka_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Start Kafka stack
+  ansible.builtin.command: docker compose -f {{ kafka_dir }}/docker-compose.yml up -d
+  args:
+    chdir: "{{ kafka_dir }}"
+  register: kafka_up
+  changed_when: >
+    ('created' in kafka_up.stdout | lower) or
+    ('recreated' in kafka_up.stdout | lower) or
+    ('started' in kafka_up.stdout | lower)
+
+- name: Wait for Kafka to be reachable
+  ansible.builtin.wait_for:
+    host: localhost
+    port: 9092
+    delay: 5
+    timeout: 120
+
+- name: Ensure telemetry topic exists
+  ansible.builtin.command: >
+    docker exec {{ kafka_container_name }} kafka-topics
+    --create --if-not-exists
+    --topic {{ kafka_topic }}
+    --bootstrap-server localhost:9092
+    --replication-factor 1
+    --partitions 3
+  register: topic_create
+  changed_when: "'Created topic' in topic_create.stdout"

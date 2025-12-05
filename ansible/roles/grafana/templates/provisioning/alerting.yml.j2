@@ -1,0 +1,54 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: drone-alerts
+    folder: Alerts
+    interval: 1m
+    rules:
+      - uid: low-battery
+        title: Low battery (<20%)
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: clickhouse
+            model:
+              refId: A
+              format: time_series
+              rawQuery: true
+              intervalMs: 60000
+              maxDataPoints: 43200
+              target: "SELECT $__time(ts) AS t, avg(battery) AS v FROM {{ clickhouse_db }}.telemetry WHERE ts BETWEEN $__fromTime AND $__toTime GROUP BY t ORDER BY t"
+        noDataState: NoData
+        execErrState: Error
+        for: 0m
+        annotations:
+          summary: "Batería baja detectada (<20%) en últimos 5m"
+        labels:
+          severity: warning
+      - uid: no-ingest
+        title: No telemetry in last 5m
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: clickhouse
+            model:
+              refId: A
+              format: table
+              rawQuery: true
+              intervalMs: 60000
+              maxDataPoints: 100
+              target: "SELECT count(*) AS c FROM {{ clickhouse_db }}.telemetry WHERE ts >= $__fromTime AND ts <= $__toTime"
+        noDataState: Alerting
+        execErrState: Error
+        for: 0m
+        annotations:
+          summary: "No se recibió telemetría en los últimos 5 minutos"
+        labels:
+          severity: critical
